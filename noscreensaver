@@ -1,0 +1,10 @@
+#!/bin/sh
+SECONDS=60
+echo Moving mouse every $SECONDS seconds
+echo Press CTRL-C to abort...
+while true; do 
+	sleep $SECONDS
+	xdotool mousemove_relative 10 10
+	sleep $SECONDS
+	xdotool mousemove_relative -10 -10
+done
