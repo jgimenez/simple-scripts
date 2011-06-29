@@ -1,0 +1,17 @@
+#!/bin/bash
+# Script to listen to weareone.fm on command line
+TYPE=$1
+if [ -z "${TYPE}" ]; then
+        B='\e[38;1m'
+        N='\e[0m'
+        echo -e "${B}Radio      Moderator            Show                                     Musicstyle                   Listener"
+        echo -e     "---------- -------------------- ---------------------------------------- ---------------------------- --------$N"
+        curl -s "http://www.weareone.fm" |
+                grep 'document.location.href\|value"' |
+                tr -d '\r' |
+                sed 's,.*>\([^<]*\)<.*,"\1",' |
+                sed 's,.*www\.\([^.]*\)\..*,"\1",' |
+                xargs printf '%-10s %-20s %-40s %-30s %6s\n'
+else
+        mplayer -playlist "http://listen.$TYPE.fm/aacplus.pls"
+fi

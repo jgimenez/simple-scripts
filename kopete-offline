@@ -1,0 +1,4 @@
+#!/bin/sh
+export DISPLAY=:0.0
+qdbus org.kde.kopete /Kopete org.kde.Kopete.setOnlineStatus Offline
+kdialog --title "Kopete" --passivepopup "Es la hora, Kopete parado"
