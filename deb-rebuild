@@ -1,0 +1,6 @@
+#!/bin/sh
+BASE=/mnt/cacodemon/almacenamiento_datos/debian
+OLDPWD=$(pwd)
+cd $BASE
+dpkg-scanpackages binary | gzip -9c >  binary/Packages.gz
+cd $OLDPWD
