@@ -1,0 +1,2 @@
+#!/bin/sh
+echo -n -e $(sed 's/../\\x&/g') | iconv -f EBCDICUS

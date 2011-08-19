@@ -1,0 +1,279 @@
+#!/usr/bin/perl
+# (C) 2006 Mark Boddington, http://www.badpenguin.co.uk
+# Licensed Under the GNU GPL Version 2.
+#
+# pcap-util Version 1.0
+# This is a utility to reduce pcap files down to manageable sizes. 
+# You can either extract packets captured between specified times,  
+# split the dump into smaller files or extract packets matching a
+# tcpdump filter.
+#
+# Check out Version 2.0 if you require Layer 7 data inspection
+# abilities. http://www.badpenguin.co.uk/files/pcap-util2
+
+use Net::Pcap;
+use Switch;
+use Time::Local;
+
+# Size of a pcap packet header. I'm guessing ;-)
+use constant PCAP_PKTHDR => 18;
+
+# Packets can arrive out of order. How long shall we wait for a late packet?
+# Value is in seconds and we will keep processing until endtime + this value.
+use constant PCAP_LATE_PKTS => 2;
+
+# =============================================================================
+# Begin Subroutine: printUsage
+# =============================================================================
+# Print the script usage information to the standard error
+# =============================================================================
+# Input  : NULL
+# Output : NULL
+# =============================================================================
+sub printUsage
+{
+	print STDERR "\n";
+	print STDERR "This utility will take a pcap file from a packet capture program like tcpdump\n"; 
+	print STDERR "and split it into smaller parts to aid analysis. There are three options.\n\n";
+	print STDERR " 1. You can split the file into several smaller ones of x bytes in length\n";
+	print STDERR " 2. You can extract packets that fall within a specified time period\n";
+	print STDERR " 3. You can extract packets that match a libpcap filter string\n";
+	print STDERR " 4. You can merge various packet files into a single one.\n\n";
+	print STDERR "Split into smaller files\n------------------------\n";
+	print STDERR "$0 split <infile> <outfile prefix> <size in MB>\n\n";
+	print STDERR "Extract packets from time period\n--------------------------------\n";
+	print STDERR "$0 time <infile> <outfile> <Start time> <End time>\n\n";
+	print STDERR "Extract packets using libpcap filter language\n";
+	print STDERR "---------------------------------------------\n";
+	print STDERR "$0 filter <infile> <outfile> \"libpcap filter string\"\n\n";
+	print STDERR "Merge packet files\n";
+	print STDERR "---------------------------------------------\n";
+	print STDERR "$0 merge <infile> [<infile> ...] <outfile>\n\n";
+	print STDERR "\n** Time format should be YYYY-MM-DD:hh:mm:ss **\n\n";
+}
+
+# =============================================================================
+# Begin Subroutine: openOutFile
+# =============================================================================
+# Open the output file via the pcap library dump_open and return the file
+# pointer to the caller.
+# =============================================================================
+# Input  : $outfile - the name of the output file to write
+# Input  : $packets - the packet capture descriptor
+# Output : $dump_out - return the file descriptor for the new savefile
+# =============================================================================
+sub openOutFile
+{
+	my ( $outfile, $packets ) = @_;
+	my $dump_out;
+	if ( ! ( $dump_out = Net::Pcap::dump_open($packets, $outfile) ) )
+	{
+		$error = Net::Pcap::geterr($packets);
+		die("Failed to open output file : $error\n");
+	}
+	return $dump_out;
+}
+
+# =============================================================================
+# Begin Subroutine: processTime
+# =============================================================================
+# process the input file writing the packets that fall between starttime and
+# endtime to the outfile. Packets are read from the packet capture descriptor.
+# =============================================================================
+# Input  : $packets - the packet capture descriptor
+# Input  : $starttime - the start of the period to extract packets from
+# Input  : $endtime - the end of the period to extract packets from
+# Input  : $outfile - the name of the output file to open via OpenOutFile
+# Output : NULL
+# =============================================================================
+sub processTime
+{
+	my ( $packets, $starttime, $endtime, $outfile ) = @_;
+	my %header;
+	my $index=0;
+	my $found=0;
+	my $dump_out = openOutFile( $outfile, $packets);
+	my $curpkt = Net::Pcap::next( $packets, \%header );
+
+	my @st = split(/[:-]/,$starttime);
+	my @et = split(/[:-]/,$endtime);
+	my $st = timelocal(@st[5],@st[4],@st[3],@st[2],@st[1]-1,@st[0]);
+	my $et = timelocal(@et[5],@et[4],@et[3],@et[2],@et[1]-1,@et[0]);
+	
+	while ( %header )
+	{
+		$index++;
+		if ( %header->{'tv_sec'} >= $st and %header->{'tv_sec'} <= $et )
+		{
+			Net::Pcap::dump($dump_out, \%header, $curpkt);
+			$found++;
+		} elsif ( %header->{'tv_sec'} > ( $et + PCAP_LATE_PKTS ) ) {
+			last;
+		}
+		if ( $index % 1000 == 0 ) { 
+			print "\rPackets processed: $index, found: $found, last timestamp: " . %header->{'tv_sec'}; 
+		}
+		undef %header;
+		$curpkt = Net::Pcap::next($packets,\%header);
+	}
+	print "\n====> Done <==== \n";
+	Net::Pcap::dump_close($dump_out);
+}
+
+# =============================================================================
+# Begin Subroutine: processSize
+# =============================================================================
+# Process the input file, writing packets to the output file until they exceed
+# the filesize. Then open a new output file and continue writing.
+# =============================================================================
+# Input  : $packets - the packet capture descriptor.
+# Input  : $filesize - the maximum size of our output files.
+# Input  : $outfile - the file prefix for our output files.
+# Output : NULL
+# =============================================================================
+sub processSize
+{
+	my ($packets, $filesize, $outfile) = @_;
+	my %header;
+	my $cursize=0;
+	my $fileindex=0;
+	
+	my $dump_out = openOutFile( "$outfile.$fileindex.tcpdump", $packets);
+	my $curpkt = Net::Pcap::next( $packets, \%header );
+	print "Writing file $outfile.$fileindex.tcpdump\n";
+
+	while ( %header )
+	{
+		$cursize += %header->{'caplen'} + PCAP_PKTHDR;
+		Net::Pcap::dump($dump_out, \%header, $curpkt);
+		if ( $cursize > $filesize )
+		{
+			Net::Pcap::dump_close($dump_out);
+			$fileindex++;
+			$cursize = 0;
+			$dump_out = openOutFile( "$outfile.$fileindex.tcpdump", $packets);
+			print "Writing file $outfile.$fileindex.tcpdump\n";
+		}
+		undef %header;
+		$curpkt = Net::Pcap::next($packets,\%header);
+	}
+	print "\n====> Done <==== \n";
+	Net::Pcap::dump_close($dump_out);
+}
+
+# =============================================================================
+# Begin Subroutine: processFilter
+# =============================================================================
+# Process the input file, writing packets to the output file that match the pcap
+# filter string.
+# =============================================================================
+# Input  : $packets - the packet capture descriptor.
+# Input  : $filterStr - the filter string.
+# Input  : $outfile - the file prefix for our output files.
+# Output : NULL
+# =============================================================================
+sub processFilter
+{
+	my ( $packets, $filterStr, $outfile) = @_;
+	my $filter;
+	my $optimise = 0;
+	my $netmask = "255.255.255.255";
+	my $dump_out = openOutFile( $outfile, $packets);
+
+	if ( Net::Pcap::compile($packets, \$filter, "$filterStr", $optimise, $netmask) == -1 )
+	{
+		print STDERR "Failed to compile the filter string: $filterStr\n";
+		return(-1);
+	}
+	
+	Net::Pcap::setfilter($packets, $filter);
+
+	print "Writing packets matching \"$filterStr\" to $outfile\n";
+	my $curpkt = Net::Pcap::next( $packets, \%header );
+	while ( %header )
+	{
+		Net::Pcap::dump($dump_out, \%header, $curpkt);
+		undef %header;
+		$curpkt = Net::Pcap::next($packets,\%header);
+	}
+	print "\n====> Done <==== \n";
+	Net::Pcap::dump_close($dump_out);
+
+}
+
+# We either need 4 or 5 arguments, if we else print the usage and exit.
+if ( @ARGV < 4 )
+{
+	printUsage;
+	exit;
+}
+
+my $command = $ARGV[0];
+my $file = $ARGV[1];
+my $outfile = $ARGV[2];
+my $error;
+my $packets; 
+
+# Open the capture file we are processing. If we can't print an error and exit.
+if ($command ne "merge" && ! ( $packets = Net::Pcap::open_offline($file, \$error) ) )
+{
+	die("Failed to open input file : $error\n");
+}
+
+switch ($command)
+{
+	case "time" 
+	{ 
+		my $starttime  = $ARGV[3];
+		my $endtime = $ARGV[4];
+		processTime($packets, $starttime, $endtime, $outfile);
+		Net::Pcap::close($packets);
+		last; 
+	} 
+	case "split"
+	{
+		my $filesize = $ARGV[3];
+		$filesize = $filesize * 1024 * 1024;
+		processSize($packets, $filesize, $outfile);
+		Net::Pcap::close($packets);
+		last;
+	} 
+	case "filter"
+	{
+		my $filterStr = $ARGV[3];
+		processFilter($packets, $filterStr, $outfile);
+		Net::Pcap::close($packets);
+		last;
+	}
+	case "merge"
+	{
+		my ( $curpkt, @infiles, $dump_out, $packets, $error, %header );
+		$outfile = pop(@ARGV);
+		@infiles = @ARGV[1..$#ARGV];
+		$opackets = Net::Pcap::pcap_open_dead(0, 0);
+		$dump_out = openOutFile($outfile, $opackets);
+		foreach $file (@infiles)
+		{
+		        print "opening $file\n";
+			$packets = Net::Pcap::open_offline($file, \$error) or die "puta";
+			for($curpkt = Net::Pcap::next($packets, \%header);
+			    %header;
+			    $curpkt = Net::Pcap::next($packets, \%header))
+			{
+				Net::Pcap::dump($dump_out, \%header, $curpkt);
+				undef %header;
+			}
+			Net::Pcap::close($packets);
+		}
+		Net::Pcap::dump_close($dump_out);
+		last;
+	}
+	else
+	{
+		# no valid command given. print the usage information.
+		printUsage();
+	}
+} 
+
+
+

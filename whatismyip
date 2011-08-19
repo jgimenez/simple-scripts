@@ -1,0 +1,4 @@
+#!/bin/sh
+
+wget www.whatismyip.org -O - -q
+echo

@@ -1,0 +1,37 @@
+#!/bin/bash
+ORIGEN="$*"
+if [ -z "$ORIGEN" ]; then
+	ORIGEN=-
+fi
+#IFS="\0"
+for FILE in $ORIGEN; do
+	if [ $# -gt 1 ]; then
+		echo "$FILE:"
+	fi
+# url: http://testvalidacio.catcert.cat/psiswebclient/verifyCert.do
+# param: certBase64 buit
+# param: certFile fitxer amb Content-Type: application/x-x509-ca-cert
+curl --silent --form "certBase64=" --form "certFile=@$FILE;application/x-x509-ca-cert" http://testvalidacio.catcert.cat/psiswebclient/verifyCert.do | 
+#cat psis-example.html |
+#	lynx -force_html -dump -stdin |
+	iconv -f 'ISO-8859-1' |
+	perl -e '
+		my $fu = join("", <>); 
+		while($fu =~ /<tr[^>]*>(.*?)<\/tr[^>]*>/gsi) {
+			$line=$1;
+			$output="";
+			while($line =~ /<td.*?>(.*?)<\/td.*?>/gsi) {
+				$content = $1;
+				$content =~ s/<[^>]*>//gs; 
+				$output="$output-$content";
+			}; 
+			$output =~ s/^[ \t\r\n-]*(.*)[ \t\r\n-]*$/\1/gm; 
+			if(length($output) > 0 &&
+				! ($output eq "Camp-Valor") &&
+				! ($output eq "&nbsp;-Enrere") &&
+				! ($output eq "&nbsp;-Inici")) {
+				print "$output\n";
+			}
+		}'
+done
+echo

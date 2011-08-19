@@ -1,0 +1,2 @@
+#!/bin/sh
+find . -type d -exec sh -c 'cd {} && jad -s java -o *.class' \;

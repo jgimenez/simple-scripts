@@ -1,0 +1,4 @@
+#!/bin/sh
+SECONDS=$(( $(date -d "$*" +%s) - $(date +%s) ))
+echo Sleeping $SECONDS seconds...
+sleep $SECONDS

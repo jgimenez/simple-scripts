@@ -1,0 +1,45 @@
+#! /usr/bin/perl -w
+use strict;
+
+my @fieldNames = (
+                "Host:",
+                "Ports:",
+                "OS:",
+                "Seq Index:",
+                "IPID Seq:"
+                );
+
+my $split = join "|", @fieldNames;
+$split = "($split)";
+
+while( <> ){
+
+        foreach my $fieldName ( @fieldNames ){
+                if( $_ =~ m/$fieldName/ ){
+                        my ( $pre, $post ) = split $fieldName, $_ ;
+                        my ( $fieldVal, @junk ) = split /$split/, $post;
+
+                        if( $fieldName eq "Host:" ){
+                                $fieldVal =~ m/([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)\s+\((.*)\)/;
+                                my $dottedDecIp = $1; 
+                                my $ipName = $2;
+                                print "\"$dottedDecIp\",\"$ipName\",";
+                        }
+                        elsif( $fieldName eq "OS:" ){
+                                my $os = $fieldVal;
+                                $os =~ s/^\s+//;
+                                $os =~ s/\s+$//;
+                                print "\"$os\",";
+                        }
+                        elsif( $fieldName eq "Ports:" ){
+                                my( @ports ) = $fieldVal =~ m/\s+([0-9]+)\/open/g;
+                                print "\"";
+                                foreach my $port ( @ports ){
+                                        print "$port,";
+                                }
+                                print "\"";
+                        }
+                }
+        }
+        print "\n";
+}
