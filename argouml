@@ -1,0 +1,2 @@
+#!/bin/sh
+javaws http://argouml-downloads.tigris.org/jws/argouml-latest-stable.jnlp
